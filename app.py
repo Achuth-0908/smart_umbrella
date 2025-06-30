@@ -9,18 +9,26 @@ import time
 import random
 import requests
 import pytz
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
 
 app = Flask(__name__)
 CORS(app)  
 
-client = MongoClient("mongodb+srv://Achuth:12345@cluster0.zazfm2m.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0")
+# Load sensitive values from environment variables
+MONGO_URI = os.getenv("MONGO_URI")
+MODEL_PATH = os.getenv("MODEL_PATH")
+DEVICE_IP = os.getenv("DEVICE_IP")  # for /insertTestData requests
+
+client = MongoClient(MONGO_URI)
 db = client["SmartUmbrellaDB"]
 collection = db["predictions"]
 
 bundle = joblib.load("rain_predictor.pkl")
 scaler = bundle["scaler"]
-model_path = bundle["model_path"]
-model = tf.keras.models.load_model(model_path)
+model = tf.keras.models.load_model(MODEL_PATH)
 local_timezone = pytz.timezone("Asia/Kolkata")
 
 @app.route("/sendData", methods=["POST"])
@@ -76,14 +84,12 @@ def get_historical_data():
     data_points = []
     for doc in historical_data:
         doc["timestamp"] = doc["timestamp"] + timedelta(hours=5, minutes=30)
-        time = doc["timestamp"].astimezone(pytz.timezone("Asia/Kolkata")).strftime('%Y-%m-%d %H:%M:%S %Z%z')
-        temperature = doc["temperature"]
-        humidity = doc["humidity"]
+        time_str = doc["timestamp"].astimezone(pytz.timezone("Asia/Kolkata")).strftime('%Y-%m-%d %H:%M:%S %Z%z')
         data_points.append({
             "umbrella_id": doc["umbrella_id"],
-            "time": time,
-            "temperature": temperature,
-            "humidity": humidity
+            "time": time_str,
+            "temperature": doc["temperature"],
+            "humidity": doc["humidity"]
         })
     
     return jsonify(data_points)
@@ -112,11 +118,10 @@ def insert_test_data():
         }
 
         try:
-            response = requests.post("http://192.168.43.8:5000/sendData", data=data)
+            response = requests.post(f"http://{DEVICE_IP}:5000/sendData", data=data)
 
             if response.status_code == 200:
                 result = response.json()
-
                 inserted_records.append({
                     "temperature": temperature,
                     "humidity": humidity,
@@ -140,7 +145,7 @@ def insert_test_data():
         time.sleep(3)
 
     return jsonify({
-        "message": "Inserted 10 test records successfully.",
+        "message": "Inserted 5 test records successfully.",
         "records": inserted_records
     })
 
